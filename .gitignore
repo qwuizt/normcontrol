@@ -1,0 +1,17 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+.env
+
+output/*
+!output/.gitkeep
+fixed_docx/*
+!fixed_docx/.gitkeep
+work_docx/*
+!work_docx/.gitkeep
+
+input_docx/*.docx
+!input_docx/.gitkeep
+
+rendered_qa/

@@ -1,0 +1,6 @@
+root_dir: ...  # the run folder, looks like /opt/airflow/runs/<pdf_name>/ or
+
+pdf_file: ...
+
+# Путь к папке логирования
+log_dir: ${paths.root_dir}/logs
