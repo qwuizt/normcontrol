@@ -228,6 +228,7 @@ def apply_rule_to_candidates(
                 author=author,
                 timestamp=timestamp,
             )
+            paragraph_texts[paragraph_index] = rule.new_text
             result.replacements += 1
             result.paragraph_indexes.append(paragraph_index)
             continue
@@ -244,6 +245,7 @@ def apply_rule_to_candidates(
                 author=author,
                 timestamp=timestamp,
             )
+            paragraph_texts[paragraph_index] = rule.new_text
             result.replacements += 1
             result.paragraph_indexes.append(paragraph_index)
             continue
@@ -257,6 +259,7 @@ def apply_rule_to_candidates(
             timestamp=timestamp,
         )
         if changed:
+            paragraph_texts[paragraph_index] = text.replace(rule.old_text, rule.new_text, 1)
             result.replacements += 1
             result.paragraph_indexes.append(paragraph_index)
         else:
@@ -305,7 +308,13 @@ def get_next_change_id(document_root: etree._Element) -> int:
 
 
 def paragraph_text(paragraph: etree._Element) -> str:
-    return ''.join(node.text or '' for node in paragraph.xpath('.//w:t', namespaces=NS))
+    parts: list[str] = []
+    for node in paragraph.iter():
+        if node.tag == qn('t'):
+            parts.append(node.text or '')
+        elif node.tag == qn('noBreakHyphen'):
+            parts.append('-')
+    return ''.join(parts)
 
 
 def find_reference_paragraph_indexes(texts: list[str]) -> set[int]:

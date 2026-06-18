@@ -519,8 +519,8 @@ def validate_reference_entry(entry: ReferenceEntry) -> list[ReferenceIssue]:
     электронный источник, статья, книга, стандарт, нормативный акт,
     материал конференции или неизвестный источник.
     """
-    issues = validate_common_entry_rules(entry)
     source_type = detect_source_type(entry)
+    issues = validate_common_entry_rules(entry, source_type=source_type)
 
     match source_type:
         case SourceType.WEB:
@@ -545,7 +545,11 @@ def validate_reference_entry(entry: ReferenceEntry) -> list[ReferenceIssue]:
     return issues
 
 
-def validate_common_entry_rules(entry: ReferenceEntry) -> list[ReferenceIssue]:
+def validate_common_entry_rules(
+    entry: ReferenceEntry,
+    *,
+    source_type: SourceType | None = None,
+) -> list[ReferenceIssue]:
     """
     Проверить общие правила оформления для всех типов источников.
 
@@ -573,12 +577,13 @@ def validate_common_entry_rules(entry: ReferenceEntry) -> list[ReferenceIssue]:
         issues.append(warn(entry, 'В библиографической записи есть незакрытые скобки'))
     if URL_WITH_SPACE_RE.search(text):
         issues.append(error(entry, 'URL содержит пробел и может быть некорректным'))
-    if URL_RE.search(text) and not ACCESS_DATE_MARKER_RE.search(text):
-        issues.append(error(entry, 'Для электронного источника не найдена дата обращения'))
-    if ACCESS_DATE_MARKER_RE.search(text) and not ACCESS_DATE_STRICT_RE.search(text):
-        issues.append(error(entry, 'Дата обращения должна быть оформлена так: "(дата обращения: ДД.ММ.ГГГГ)"'))
-    if ACCESS_DATE_MARKER_RE.search(text) and not (URL_RE.search(text) or URL_MARKER_RE.search(text)):
-        issues.append(warn(entry, 'Найдена дата обращения, но не найден URL источника'))
+    if source_type != SourceType.WEB:
+        if URL_RE.search(text) and not ACCESS_DATE_MARKER_RE.search(text):
+            issues.append(error(entry, 'Для электронного источника не найдена дата обращения'))
+        if ACCESS_DATE_MARKER_RE.search(text) and not ACCESS_DATE_STRICT_RE.search(text):
+            issues.append(error(entry, 'Дата обращения должна быть оформлена так: "(дата обращения: ДД.ММ.ГГГГ)"'))
+        if ACCESS_DATE_MARKER_RE.search(text) and not (URL_RE.search(text) or URL_MARKER_RE.search(text)):
+            issues.append(warn(entry, 'Найдена дата обращения, но не найден URL источника'))
 
     return issues
 
