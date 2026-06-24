@@ -143,8 +143,6 @@ class PyMuPDFModel(AbstractTextExtraction):
 
         # Извлекаем текст из областей
         blocks: list[ExtractedText] = []
-        line_number: int = 0
-
         for clip in clips:
             page_text = page.get_text(option='dict', clip=clip.rectangle_for_pymupdf, sort=sort)
 
@@ -155,7 +153,8 @@ class PyMuPDFModel(AbstractTextExtraction):
                 if info_next := ExtractedText.from_block(page_index, 0, block):
                     info = info | info_next if info else info_next
 
-            if info: blocks.append(info)
+            if info:
+                blocks.append(info)
 
         return blocks
 

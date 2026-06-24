@@ -1,3 +1,6 @@
+from src.structures import ErrorMessage
+
+
 class CaptionNotFoundError(Exception):
     def __init__(self, page_index: int, table_number: int):
         super().__init__(f'The caption was not found on page {page_index} for table {table_number}')
@@ -6,10 +9,6 @@ class CaptionNotFoundError(Exception):
 class ReferenceNotFoundError(Exception):
     def __init__(self, page_index: int, table_number: int):
         super().__init__(f'The reference was not found on page {page_index} for table {table_number}')
-
-
-from src.structures import ErrorMessage
-
 
 # ====================== Semantic Checks module errors ======================
 class SemanticErrorMessages:

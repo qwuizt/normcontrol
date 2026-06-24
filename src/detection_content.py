@@ -4,7 +4,7 @@ import re
 import pandas as pd
 
 from src.models.model_text_extraction import PyMuPDFModel
-from src.structures import ContentElement, Paths, PageClass, BoundingBox, ExtractedText
+from src.structures import ContentElement, ExtractedText, PageClass, Paths
 from src.tools.summary_visualization import SummaryVisualization
 
 logger = logging.getLogger(__name__)
@@ -101,7 +101,7 @@ def try_to_extract_page_number(item: ContentElement) -> None:
 def extract_lines(lines: list[ExtractedText]) -> list[ContentElement]:
     res = []
 
-    lines = [l for l in lines if len(l.text) >= 5 and l.text.lower() != 'содержание']
+    lines = [line for line in lines if len(line.text) >= 5 and line.text.lower() != 'содержание']
 
     for index, line in enumerate(lines):
         text = line.text.replace('…', '.')

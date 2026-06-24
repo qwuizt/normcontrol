@@ -207,7 +207,11 @@ def validate_references(paths_object: Paths, sv: SummaryVisualization | None = N
     return sv
 
 
-def collect_reference_validation_result(paths_object: Paths) -> ReferenceValidationResult:
+def collect_reference_validation_result(
+    paths_object: Paths,
+    *,
+    include_rule_issues: bool = True,
+) -> ReferenceValidationResult:
     """
     Выполнить анализ списка источников и вернуть данные для интеграции.
 
@@ -231,11 +235,12 @@ def collect_reference_validation_result(paths_object: Paths) -> ReferenceValidat
     entries, grouping_orphans = group_reference_entries(body_lines)
     orphan_lines.extend(grouping_orphans)
 
-    issues.extend(validate_reference_list(entries, orphan_lines))
-    for entry in entries:
-        issues.extend(validate_reference_entry(entry))
-    issues.extend(find_near_duplicate_entries(entries))
-    issues.extend(validate_reference_alignment(entries))
+    if include_rule_issues:
+        issues.extend(validate_reference_list(entries, orphan_lines))
+        for entry in entries:
+            issues.extend(validate_reference_entry(entry))
+        issues.extend(find_near_duplicate_entries(entries))
+        issues.extend(validate_reference_alignment(entries))
 
     return ReferenceValidationResult(
         reference_pages=reference_pages,

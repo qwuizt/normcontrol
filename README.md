@@ -1,57 +1,45 @@
 # References Normcontrol
 
-Python-прототип для поиска замечаний в списке литературы и внесения исправлений в DOCX в режиме Track Changes.
+Python-прототип агентной проверки списка литературы и внесения исправлений в DOCX в режиме Track Changes.
 
-## Сначала прочитайте ограничения
+## Текущая концепция
 
-- Проект проверяет и редактирует только раздел списка литературы/источников, а не весь документ.
-- DOCX проверяется через промежуточный PDF: `DOCX -> PDF -> анализ PDF`. Для конвертации используется [`docx2pdf`](https://github.com/AlJohri/docx2pdf), поэтому на macOS/Windows нужен установленный Microsoft Word.
-- GigaChat используется только как генератор варианта исправленной библиографической записи. Модель может ошибаться, поэтому итоговый `edited_tracked.docx` нужно просматривать вручную.
-- Модель не должна выдумывать даты обращения, объем книги, DOI, URL, издательство и другие фактические данные. Если данных нет, prompt требует вставлять placeholders: `[укажите дату обращения]`, `[укажите количество страниц]`.
-- Часть PDF-пайплайна перенесена из `auto-normcontrol` как legacy-код в `src/` и `nodes/`. Это сделано для воспроизводимости НИР, а не как финальная архитектура библиотеки.
-
-## Контекст
-
-Прототип выделен из проекта `auto-normcontrol` и решает одну практическую задачу: автоматизировать нормоконтроль списка литературы в учебных и научных работах.
-
-Основная цепочка работы:
+Система ориентирована на LLM-проверку библиографических записей:
 
 ```text
-PDF -> поиск раздела списка литературы -> группировка источников -> rule-based замечания
-DOCX -> PDF -> замечания PDF -> сопоставление с DOCX -> GigaChat -> DOCX Track Changes
+DOCX -> извлечение списка литературы -> LLM-классификация типа источника
+     -> подбор примеров этого типа -> LLM-сравнение и генерация замечаний -> reference_report.json
+reference_report.json -> DOCX Track Changes
+reference_report.json -> опциональная PDF-визуализация замечаний
 ```
 
-Фоновая информация:
+## Ограничения
 
-- [Python packaging with pyproject.toml](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/)
-- [`uv` package manager](https://docs.astral.sh/uv/)
-- [`python-docx`](https://python-docx.readthedocs.io/) для чтения структуры DOCX
-- [Office Open XML](https://learn.microsoft.com/en-us/office/open-xml/open-xml-sdk) как формат DOCX/PPTX/XLSX
-- [`docx2pdf`](https://github.com/AlJohri/docx2pdf) для конвертации DOCX в PDF через Microsoft Word
-- [GigaChat Python SDK](https://github.com/ai-forever/gigachat)
+- Проверяется и редактируется только раздел списка литературы/источников.
+- PDF создается для визуализации замечаний в `output.pdf`; Для конвертации DOCX -> PDF используется библеотека [`docx2pdf`](https://github.com/AlJohri/docx2pdf), для которой необходим установленный Microsoft Word.
+- В сценарии `run_normcontrol.py edit-docx` можно работать без PDF: флаг `--skip-pdf` отключает `docx2pdf` и оставляет только `DOCX -> LLM/reference_report.json -> Track Changes`.
+- GigaChat используется в режимах `--use-gigachat` и `--llm-baseline`.
+- Prompt запрещает выдумывать DOI, URL, издательство, место издания, объем книги, дату обращения и другие фактические данные. Если данных нет, модель должна использовать placeholders вроде `[укажите дату обращения]`.
 
 ## Термины
 
-- **Список литературы / список источников**: раздел документа с библиографическими записями.
-- **PDF-пайплайн**: последовательность `parsing_pdf -> detection_document_structure -> references_validation -> visualization`.
-- **Track Changes**: режим исправлений Microsoft Word. В DOCX хранится как элементы [`w:ins` и `w:del`](https://learn.microsoft.com/en-us/office/open-xml/word/working-with-wordprocessingml-documents).
-- **OOXML**: XML-формат документов Microsoft Office. DOCX фактически является zip-архивом с XML-файлами.
-- **Mapping PDF/DOCX**: сопоставление замечания, найденного на PDF, с конкретной библиографической записью в DOCX.
-- **Placeholder**: явный текст вместо неизвестного факта, например `[укажите дату обращения]`.
+- **Reference agent**: компонент, который формирует `reference_report.json` по каждой библиографической записи.
+- **`reference_report.json`**: основной машинный отчет агента с типом источника, примером, замечаниями и предложенным исправленным текстом.
+- **PDF-визуализация**: `output.pdf` с подсветкой источников, для которых агент нашел замечания.
+- **Track Changes**: исправления Microsoft Word, записанные напрямую в OOXML как `w:ins` и `w:del`.
+- **Legacy PDF validation**: старые проверки PDF на основе правил; не являются основным агентным сценарием.
 
 ## Установка
 
 Требования:
 
 - Python `>=3.12,<3.14`
-- [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
-- Microsoft Word для сценариев `check-docx` и `edit-docx`
-- ключ GigaChat только для режима `--use-gigachat`
-
-Команды:
+- [`uv`](https://docs.astral.sh/uv/)
+- Microsoft Word только для PDF-визуализации через DOCX -> PDF
+- ключ GigaChat для LLM-режимов
 
 ```bash
-cd <path_to_project> 
+cd <path_to_project>
 uv sync
 cp .env.example .env
 ```
@@ -65,252 +53,180 @@ GIGACHAT_MODEL=
 GIGACHAT_VERIFY_SSL_CERTS=false
 ```
 
-
 ## Быстрый старт
 
-Положите входной DOCX сюда:
-
-```text
-input_docx/
-```
-
-Запустите проверку и редактирование:
+Baseline без `docx2pdf`: прямой LLM-запрос "перепиши источник согласно ГОСТ 7.32-2017" без базы примеров, результат сразу в DOCX Track Changes.
 
 ```bash
-uv run python references_normcontrol/run_normcontrol.py edit-docx input_docx/<your_docx_name>.docx --output-dir fixed_docx --use-gigachat
+uv run python references_normcontrol/run_normcontrol.py edit-docx input_docx/<file>.docx --output-dir fixed_docx --llm-baseline --skip-pdf
 ```
 
-Итоговый DOCX:
-
-```text
-fixed_docx/<your_docx_name>/edited_tracked.docx
-```
-
-## Сценарии CLI
-
-### 1. Проверка PDF
+Основной агентный режим с базой примеров:
 
 ```bash
-uv run python references_normcontrol/run_normcontrol.py check-pdf <your_pdf_name>.pdf --output-dir output
+uv run python references_normcontrol/run_normcontrol.py edit-docx input_docx/<file>.docx --output-dir fixed_docx --use-gigachat --skip-pdf
 ```
 
-Результат:
+Если нужна PDF-визуализация замечаний, не передавайте `--skip-pdf`:
+
+```bash
+uv run python references_normcontrol/run_normcontrol.py edit-docx input_docx/<file>.docx --output-dir fixed_docx --use-gigachat
+```
+
+Если файл примеров лежит не в репозитории:
+
+```bash
+uv run python references_normcontrol/run_normcontrol.py edit-docx input_docx/<file>.docx --output-dir fixed_docx --use-gigachat --skip-pdf --reference-examples "/path/to/reference_examples.json"
+```
+
+Основные результаты без PDF:
 
 ```text
-output/<your_pdf_name>/
-  <your_pdf_name>.pdf
+fixed_docx/<file>/
+  input.docx
+  reference_report.json
+  reference_agent_replacement_rules.json
+  edited_tracked.docx
+  docx_edits_report.json
+```
+
+Дополнительно при запуске без `--skip-pdf`:
+
+```text
+fixed_docx/<file>/
+  input.pdf
   structure.csv
-  summary/
   output.pdf
 ```
 
-### 2. Проверка DOCX без редактирования
+## Режимы
+
+### `edit-docx` без LLM
 
 ```bash
-uv run python references_normcontrol/run_normcontrol.py check-docx input_docx/<your_docx_name>.docx --output-dir output
+uv run python references_normcontrol/run_normcontrol.py edit-docx input_docx/<file>.docx --output-dir fixed_docx --skip-pdf
 ```
 
-Что происходит:
+Система анализирует структуру DOCX-документа, выделяет раздел списка литературы и формирует `reference_report.json`. Без `--use-gigachat`, `--llm-baseline` или ручного `--rules` содержательные исправления не генерируются.
 
-```text
-input.docx -> work_docx/check_docx/<your_docx_name>.pdf -> output/<your_docx_name>/
-```
+### `edit-docx --skip-pdf`
 
-### 3. Проверка и редактирование DOCX
+Отключает DOCX -> PDF через `docx2pdf`. В этом режиме не создаются `input.pdf`, `structure.csv` и `output.pdf`, но сохраняются `reference_report.json`, `reference_agent_replacement_rules.json`, `edited_tracked.docx` и `docx_edits_report.json`.
 
-Без GigaChat, если передаются ручные правила:
+### `edit-docx --use-gigachat`
+
+LLM сначала классифицирует тип источника. Затем система выбирает из базы примеры этого типа, после чего LLM сравнивает запись с выбранными примерами и возвращает структурированные замечания. Если агент предлагает `suggested_text`, оно преобразуется в правила замены и применяется к DOCX через Track Changes.
+
+### `edit-docx --llm-baseline`
+
+Минимальный baseline без базы примеров: каждая запись отправляется в LLM с просьбой переписать источник по ГОСТ 7.32-2017. Ответ сохраняется в `suggested_text` и применяется к DOCX, если отличается от исходного текста.
+
+### `edit-docx --rules rules.json`
+
+Применяет ручные правила замен. Можно использовать вместе с агентными режимами: ручные правила и правила из `reference_report.json` применяются последовательно.
+
+### `edit-docx --legacy-pdf-validation`
+
+Дополнительно запускает старый rule-based PDF validator. Этот режим нужен только для сравнения с прежним pipeline и несовместим с `--skip-pdf`.
+
+### `check-pdf` и `check-docx`
+
+Legacy-команды для старой rule-based проверки PDF:
 
 ```bash
-uv run python references_normcontrol/run_normcontrol.py edit-docx input_docx/<your_docx_name>.docx --output-dir fixed_docx --rules rules.json
-```
-
-С GigaChat:
-
-```bash
-uv run python references_normcontrol/run_normcontrol.py edit-docx input_docx/<your_docx_name>.docx --output-dir fixed_docx --use-gigachat
-```
-
-Что происходит:
-
-```text
-DOCX -> PDF -> PDF-проверка -> PDF/DOCX mapping -> GigaChat -> edited_tracked.docx
+uv run python references_normcontrol/run_normcontrol.py check-pdf input.pdf --output-dir output
+uv run python references_normcontrol/run_normcontrol.py check-docx input_docx/<file>.docx --output-dir output
 ```
 
 ## Структура проекта
 
 ```text
-references_normcontrol/      # исследовательский код проверки и DOCX-редактирования
-src/                         # минимальный legacy-код PDF-пайплайна
-nodes/                       # минимальные legacy task-функции
-input_docx/                  # входные DOCX
-output/                      # результаты проверки PDF/DOCX
-fixed_docx/                  # итоговые DOCX с Track Changes
-work_docx/                   # промежуточные файлы DOCX->PDF
+references_normcontrol/
+  run_normcontrol.py                 # единая CLI-точка входа
+  run_docx_editing.py                # orchestration DOCX -> report -> PDF -> Track Changes
+  reference_agent.py                 # LLM/reference agent и JSON-схема отчета
+  reference_report_visualization.py  # PDF-визуализация замечаний из reference_report.json
+  pdf_pipeline.py                    # PDF parsing/structure и legacy validation
+  references_validation.py           # извлечение PDF-источников и legacy rule-based checks
+  docx_context.py                    # индекс DOCX
+  docx_references.py                 # выделение библиографических записей
+  docx_tracked_editing.py            # OOXML Track Changes
+  docx_to_pdf.py                     # DOCX -> PDF через Microsoft Word
+  llm_utils.py                       # общие helpers для env/JSON/LLM-ответов
+
+src/
+  ...                                # минимальный legacy-код PDF-структуры и визуализации
+
+nodes/
+  ...                                # минимальные legacy task-функции PDF-пайплайна
+
 ```
+
+## Отчет в агентном режиме
+
+`reference_report.json` содержит:
+
+- `agent_mode`: режим генерации отчета;
+- `examples_source`: путь к базе примеров, если она использовалась;
+- `entries`: записи списка литературы;
+- `source_family`: общий тип источника, например `book`, `article`, `web`;
+- `source_subtype`: ближайший подтип из базы примеров или LLM-классификации;
+- `matched_examples`: примеры, выбранные после LLM-классификации типа источника;
+- `suggested_text`: полная исправленная запись, если агент предлагает замену;
+- `issues`: замечания с `message`, `old_text`, `new_text`, `evidence`, `confidence`.
+
+Имя файла фиксированное:
+
+```text
+reference_report.json
+```
+
+## Как строится PDF визуализация
+
+1. Если `--skip-pdf` не передан, `edit-docx` конвертирует входной DOCX в `input.pdf`.
+2. `pdf_pipeline.run_pdf_structure_extraction_in_workdir` строит `structure.csv`.
+3. `reference_report_visualization.visualize_reference_report_on_pdf` берет замечания из `reference_report.json`.
+4. Для каждой записи используется порядковый индекс источника из DOCX и соответствующая PDF-запись из `structure.csv`.
+5. На `output.pdf` подсвечивается bounding box найденной библиографической записи, рядом добавляется PDF-комментарий с текстом замечания.
 
 ## API
 
-### `references_normcontrol.run_normcontrol`
+### `references_normcontrol.reference_agent`
 
-Единая CLI-точка входа.
+Основные классы:
 
-Основные команды:
+- `ExampleMatchingReferenceAgentValidator`: локальный подбор похожих примеров без LLM.
+- `GigaChatReferenceAgentValidator`: основной двухэтапный LLM-агент с базой примеров.
+- `GigaChatGost2017BaselineValidator`: baseline direct rewrite по ГОСТ 7.32-2017.
+- `ReferenceAgentReport`: JSON-схема отчета.
+- `reference_report_to_replacement_rules`: преобразование `suggested_text` в правила Track Changes.
 
-- `check-pdf`: проверить входной PDF.
-- `check-docx`: сконвертировать DOCX в PDF и проверить PDF.
-- `edit-docx`: выполнить полную цепочку проверки и редактирования DOCX.
-
-### `references_normcontrol.pdf_pipeline`
-
-Переиспользуемый PDF-пайплайн.
+### `references_normcontrol.run_docx_editing`
 
 ```python
 from pathlib import Path
-from references_normcontrol.pdf_pipeline import run_pdf_references_validation
+from references_normcontrol.run_docx_editing import run_docx_editing
 
-workdir = run_pdf_references_validation(
-    Path('input.pdf'),
-    Path('output'),
-    verbose=3,
+workdir = run_docx_editing(
+    Path("input_docx/input.docx"),
+    path_rules=None,
+    output_dir=Path("fixed_docx"),
+    use_gigachat=True,
 )
 ```
-
-Ключевые функции:
-
-- `prepare_pdf_workdir(path_pdf, output_dir) -> Path`
-- `run_pdf_references_validation(path_pdf, output_dir, verbose=3) -> Path`
-- `run_pdf_references_validation_in_workdir(workdir, verbose=3) -> Path`
-
-### `references_normcontrol.references_validation`
-
-Rule-based проверка списка литературы в PDF.
-
-```python
-from src.structures import Paths
-from references_normcontrol.references_validation import collect_reference_validation_result
-
-result = collect_reference_validation_result(Paths.create(Path('output/input')))
-print(len(result.entries), len(result.issues))
-```
-
-Основные типы:
-
-- `ReferenceValidationResult`
-- `ReferenceEntry`
-- `ReferenceIssue`
-- `SourceType`
-
-Проверяются:
-
-- нумерация;
-- дубли и пропуски;
-- тип источника;
-- год;
-- точка в конце записи;
-- URL и дата обращения;
-- строгий формат даты обращения: `(дата обращения: ДД.ММ.ГГГГ)`;
-- объем книги или тома;
-- признаки статьи, конференции, патента, диссертации, стандарта и нормативного акта.
-
-### `references_normcontrol.docx_context`
-
-Строит индекс DOCX-документа.
-
-```python
-from pathlib import Path
-from references_normcontrol.docx_context import build_docx_context
-
-context = build_docx_context(Path('input_docx/input.docx'))
-print(context.paragraph_count)
-```
-
-Использует `python-docx` для чтения абзацев, таблиц, стилей и runs.
-
-### `references_normcontrol.docx_references`
-
-Выделяет библиографические записи из DOCX.
-
-```python
-from references_normcontrol.docx_context import build_docx_context
-from references_normcontrol.docx_references import build_reference_index
-
-context = build_docx_context(Path('input_docx/input.docx'))
-reference_index = build_reference_index(context)
-print(len(reference_index.entries))
-```
-
-Особенность: поддерживается автонумерация Word, потому что номер источника может не входить в `paragraph.text`.
-
-### `references_normcontrol.pdf_docx_reference_mapping`
-
-Связывает PDF-замечания с DOCX-источниками.
-
-```python
-from src.structures import Paths
-from references_normcontrol.pdf_docx_reference_mapping import build_pdf_docx_reference_mapping
-
-mapping = build_pdf_docx_reference_mapping(Paths.create(Path('output/input')), reference_index)
-print(len(mapping.links))
-```
-
-Основная стратегия сопоставления: порядковый индекс источника.
-
-### `references_normcontrol.gigachat_reference_editor`
-
-Генерирует исправленный текст библиографической записи.
-
-```python
-from references_normcontrol.gigachat_reference_editor import (
-    GigaChatReferenceTextEditor,
-    generate_reference_fixes,
-)
-
-editor = GigaChatReferenceTextEditor()
-fixes = generate_reference_fixes(mapping.links, editor)
-```
-
-Prompt запрещает:
-
-- переводить источник на другой язык;
-- выдумывать дату обращения;
-- выдумывать количество страниц;
-- подставлять случайные DOI, URL, издательства и места издания.
 
 ### `references_normcontrol.docx_tracked_editing`
-
-Применяет замены в DOCX как Track Changes.
 
 ```python
 from pathlib import Path
 from references_normcontrol.docx_tracked_editing import apply_tracked_replacements
 
 results = apply_tracked_replacements(
-    Path('input_docx/input.docx'),
-    Path('fixed_docx/input/edited_tracked.docx'),
+    Path("input.docx"),
+    Path("edited_tracked.docx"),
     rules,
     references_only=True,
 )
 ```
 
-Важно: Track Changes создаются не публичным API `python-docx`, а прямым редактированием OOXML: `word/document.xml`, `w:ins`, `w:del`, `word/settings.xml`.
-
-### `references_normcontrol.docx_to_pdf`
-
-Конвертация DOCX в PDF через `docx2pdf`.
-
-```python
-from references_normcontrol.docx_to_pdf import convert_docx_to_pdf_with_word
-
-path_pdf = convert_docx_to_pdf_with_word(Path('input_docx/input.docx'), Path('work_docx/check_docx'))
-```
-
-Это временная зависимость от Microsoft Word. 
-
-## Варианты использования
-
-1. Если есть только PDF, используйте `check-pdf`.
-2. Если есть DOCX и нужно только найти замечания, используйте `check-docx`.
-3. Если есть DOCX и нужно получить файл с исправлениями, используйте `edit-docx`.
-4. Если нужны содержательные исправления текста, добавьте `--use-gigachat`.
-5. После получения `edited_tracked.docx` откройте файл в Word и вручную проверьте все исправления.
-
+Track Changes создаются прямым редактированием OOXML: `word/document.xml`, `w:ins`, `w:del`, `word/settings.xml`.

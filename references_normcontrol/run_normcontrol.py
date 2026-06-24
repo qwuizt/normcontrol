@@ -35,20 +35,25 @@ def edit_docx(args: argparse.Namespace) -> Path:
         pdf_workdir=args.pdf_workdir,
         use_gigachat=args.use_gigachat,
         gigachat_min_confidence=args.gigachat_min_confidence,
-        convert_docx_to_pdf=True,
-        validate_converted_pdf=True,
+        convert_docx_to_pdf=not args.skip_pdf,
+        validate_converted_pdf=args.legacy_pdf_validation,
         pdf_verbose=args.verbose,
         env_file=args.env_file,
+        reference_examples_path=args.reference_examples,
+        llm_baseline=args.llm_baseline,
     )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description='Проверка и исправление списка литературы в PDF/DOCX.',
+        description='Агентная проверка и исправление списка литературы в PDF/DOCX.',
     )
     subparsers = parser.add_subparsers(dest='command', required=True)
 
-    check_pdf_parser = subparsers.add_parser('check-pdf', help='Проверить список литературы во входном PDF.')
+    check_pdf_parser = subparsers.add_parser(
+        'check-pdf',
+        help='Legacy: проверить список литературы во входном PDF rule-based валидатором.',
+    )
     check_pdf_parser.add_argument('pdf', type=Path, help='Входной PDF.')
     check_pdf_parser.add_argument('--output-dir', type=Path, default=Path('output'), help='Папка результатов.')
     check_pdf_parser.add_argument('--verbose', type=int, default=3, choices=[1, 2, 3])
@@ -56,7 +61,7 @@ def parse_args() -> argparse.Namespace:
 
     check_docx_parser = subparsers.add_parser(
         'check-docx',
-        help='Сконвертировать DOCX в PDF и проверить список литературы.',
+        help='Legacy: сконвертировать DOCX в PDF и проверить список литературы rule-based валидатором.',
     )
     check_docx_parser.add_argument('docx', type=Path, help='Входной DOCX.')
     check_docx_parser.add_argument('--work-dir', type=Path, default=Path('work_docx/check_docx'))
@@ -66,7 +71,7 @@ def parse_args() -> argparse.Namespace:
 
     edit_docx_parser = subparsers.add_parser(
         'edit-docx',
-        help='DOCX -> PDF -> проверка замечаний -> исправленный DOCX с Track Changes.',
+        help='DOCX -> LLM/reference_report.json -> опциональная PDF-визуализация -> DOCX Track Changes.',
     )
     edit_docx_parser.add_argument('docx', type=Path, help='Входной DOCX.')
     edit_docx_parser.add_argument('--rules', type=Path, default=None, help='JSON-файл с ручными заменами.')
@@ -80,12 +85,36 @@ def parse_args() -> argparse.Namespace:
     edit_docx_parser.add_argument('--all-document', action='store_true')
     edit_docx_parser.add_argument('--author', default='AutoNormControl')
     edit_docx_parser.add_argument('--use-gigachat', action='store_true')
+    edit_docx_parser.add_argument(
+        '--llm-baseline',
+        action='store_true',
+        help='Baseline: попросить GigaChat переписать каждый источник по ГОСТ 7.32-2017 без базы примеров.',
+    )
+    edit_docx_parser.add_argument(
+        '--legacy-pdf-validation',
+        action='store_true',
+        help='Дополнительно запустить старый rule-based PDF validator как baseline.',
+    )
+    edit_docx_parser.add_argument(
+        '--skip-pdf',
+        action='store_true',
+        help='Не создавать PDF через docx2pdf: выполнить только DOCX -> LLM/reference_report.json -> Track Changes.',
+    )
     edit_docx_parser.add_argument('--gigachat-min-confidence', type=float, default=0.5)
     edit_docx_parser.add_argument('--env-file', type=Path, default=Path('.env'))
+    edit_docx_parser.add_argument(
+        '--reference-examples',
+        type=Path,
+        default=None,
+        help='XLSX/CSV/JSON-база эталонных примеров оформления источников. По умолчанию ищется reference_examples.json, затем XLSX на Desktop.',
+    )
     edit_docx_parser.add_argument('--verbose', type=int, default=3, choices=[1, 2, 3])
     edit_docx_parser.set_defaults(func=edit_docx)
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.command == 'edit-docx' and args.skip_pdf and args.legacy_pdf_validation:
+        parser.error('--legacy-pdf-validation требует PDF. Уберите --skip-pdf или не запускайте legacy PDF validation.')
+    return args
 
 
 def main() -> None:
