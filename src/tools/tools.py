@@ -6,7 +6,6 @@ import difflib
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from pymupdf import Page, Rect
 
 from src.protocols import AnnotatedPage
 from src.structures import BoundingBox, FoundedReference, FoundedCaption, PageElementDetail

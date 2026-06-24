@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,10 +9,16 @@ import pymupdf
 
 from src import paths
 from src.structures import Point, BoundingBox, FigureType, LabelPosition
-from src.tools import utils
 from src.tools.summary_visualization import SummaryVerbose
 
 logger = logging.getLogger(__name__)
+
+
+def get_page_index(page_name: str) -> int:
+    match = re.search(r'(\d+)$', page_name)
+    if match is None:
+        raise ValueError(f'Не удалось извлечь номер страницы из "{page_name}"')
+    return int(match.group(1))
 
 
 @dataclass
@@ -283,7 +290,7 @@ def _add_notes_to_summary(notes_summary: list[str], page_name: str, notes: PageN
         n_warnings += len(notes_.warnings)
         n_errors += len(notes_.errors)
 
-    page_index = utils.get_page_index(page_name)
+    page_index = get_page_index(page_name)
     str_ = f'На странице "{page_index}" найдено {n_errors} ошибок и {n_warnings} предупреждений'
     notes_summary.append(str_)
     return notes_summary

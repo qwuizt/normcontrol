@@ -8,6 +8,5 @@ defaults:
   - hydra: default
   - extra: default
   - paths: default
-  - model: default
 
-task_name: "task_figures_validation"
+task_name: "task_detection_document_structure"

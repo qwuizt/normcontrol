@@ -46,8 +46,19 @@ def run_pdf_references_validation_in_workdir(workdir: Path, *, verbose: int = 3)
     if not path_pdf.exists():
         raise FileNotFoundError(f'В рабочей папке нет {paths.FILE_PDF_FILE_NAME}: {workdir}')
 
-    task_parsing_pdf(None, str(workdir))
-    task_detection_document_structure(None, workdir)
+    run_pdf_structure_extraction_in_workdir(workdir)
     task_validate_references(None, workdir)
     task_visualize_output_pdf_file(None, path_pdf, verbose=verbose)
+    return workdir
+
+
+def run_pdf_structure_extraction_in_workdir(workdir: Path) -> Path:
+    """Запустить только PDF parsing -> structure detection без rule-based проверки."""
+    workdir = Path(workdir)
+    path_pdf = workdir / paths.FILE_PDF_FILE_NAME
+    if not path_pdf.exists():
+        raise FileNotFoundError(f'В рабочей папке нет {paths.FILE_PDF_FILE_NAME}: {workdir}')
+
+    task_parsing_pdf(None, str(workdir))
+    task_detection_document_structure(None, workdir)
     return workdir

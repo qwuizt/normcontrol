@@ -9,9 +9,6 @@ TASK_PDF_STRUCTURE_RECOGNITION: str = 'task_structure_recognition'
 
 TASK_PDF_CONTENT_RECOGNITION: str = 'task_content_recognition'
 
-# Детекция таблиц, рисунков, формул и других элементов
-TASK_DETECTION_PAGE_ELEMENTS: str = 'task_page_elements_detection'
-
 TASK_VALIDATION_PDF_STRUCTURE: str = 'task_validate_pdf_structure'
 
 TASK_VALIDATION_SECTION_HEADERS: str = 'task_validate_section_headers'

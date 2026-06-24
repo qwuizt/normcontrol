@@ -1,7 +1,0 @@
-_target_: src.models.elements_detection.yolo_model.YOLOEverything
-
-path_to_weights: ${paths.path_weights}/page_elements
-filename_weights: best_model.pt
-
-conf: 0.2
-iou: 0.8

@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import re
 from dataclasses import dataclass, asdict
 from enum import Enum
 from functools import reduce, cached_property
@@ -46,7 +48,7 @@ class ContentElement:
             'page_number': self.page_number,
             'text': self.text,
             'content_page_number': self.content_page_number,
-            'lines': [l.to_dict(full=full) for l in self.lines],
+            'lines': [line.to_dict(full=full) for line in self.lines],
         }
 
 
@@ -348,9 +350,10 @@ class PageElementDetail:
 
     @classmethod
     def from_series(cls, s: pd.Series) -> 'PageElementDetail':
-        from src.tools import utils  # exclude recurrent import
-
-        page_index: int = utils.get_page_index(s['img_name'])
+        match = re.search(r'(\d+)$', s['img_name'])
+        if match is None:
+            raise ValueError(f'Не удалось извлечь номер страницы из "{s["img_name"]}"')
+        page_index = int(match.group(1))
         box = BoundingBox(**s[['top', 'left', 'bottom', 'right']].to_dict())
         return PageElementDetail(
             element_type=s['element_type'],

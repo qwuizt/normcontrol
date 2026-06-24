@@ -4,6 +4,7 @@ import argparse
 import logging
 import shutil
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -26,20 +27,22 @@ from references_normcontrol.docx_tracked_editing import (  # noqa: E402
     save_results,
 )
 from references_normcontrol.docx_to_pdf import convert_docx_to_pdf_with_word  # noqa: E402
-from references_normcontrol.gigachat_reference_editor import (  # noqa: E402
-    GigaChatReferenceTextEditor,
-    generate_reference_fixes,
-    generated_fixes_to_replacement_rules,
-    load_env_file,
-    save_generated_reference_fixes,
+from references_normcontrol.llm_utils import load_env_file  # noqa: E402
+from references_normcontrol.pdf_pipeline import (  # noqa: E402
+    run_pdf_references_validation_in_workdir,
+    run_pdf_structure_extraction_in_workdir,
 )
-from references_normcontrol.pdf_docx_reference_mapping import (  # noqa: E402
-    build_pdf_docx_reference_mapping,
-    save_pdf_docx_reference_mapping,
+from references_normcontrol.reference_agent import (  # noqa: E402
+    GigaChatGost2017BaselineValidator,
+    GigaChatReferenceAgentValidator,
+    REFERENCE_REPORT_FILENAME,
+    build_reference_report,
+    load_examples_or_warn,
+    reference_report_to_replacement_rules,
+    save_reference_report,
 )
-from references_normcontrol.pdf_pipeline import run_pdf_references_validation_in_workdir  # noqa: E402
+from references_normcontrol.reference_report_visualization import visualize_reference_report_on_pdf  # noqa: E402
 from src import paths  # noqa: E402
-from src.structures import Paths  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -69,17 +72,13 @@ def run_docx_editing(
     validate_converted_pdf: bool = False,
     pdf_verbose: int = 3,
     env_file: Path | None = None,
+    reference_examples_path: Path | None = None,
+    llm_baseline: bool = False,
 ) -> Path:
     if not path_docx.exists():
         raise FileNotFoundError(f'DOCX не найден: {path_docx}')
     if path_rules is not None and not path_rules.exists():
         raise FileNotFoundError(f'Файл правил не найден: {path_rules}')
-    if use_gigachat and pdf_workdir is None and not (convert_docx_to_pdf and validate_converted_pdf):
-        raise ValueError(
-            'Для --use-gigachat нужно передать --pdf-workdir с результатами PDF-пайплайна '
-            'или включить --convert-docx-to-pdf вместе с --validate-converted-pdf'
-        )
-
     workdir = prepare_workdir(path_docx, output_dir)
     input_docx = workdir / 'input.docx'
     output_docx = workdir / 'edited_tracked.docx'
@@ -88,15 +87,20 @@ def run_docx_editing(
     path_references = workdir / 'docx_references.json'
     path_proposals = workdir / 'docx_edit_proposals.json'
     path_number_fix_rules = workdir / 'docx_number_fix_rules.json'
-    path_pdf_mapping = workdir / 'pdf_docx_reference_mapping.json'
-    path_gigachat_fixes = workdir / 'gigachat_reference_fixes.json'
-    path_gigachat_rules = workdir / 'gigachat_replacement_rules.json'
+    path_reference_agent_rules = workdir / 'reference_agent_replacement_rules.json'
+    path_reference_report = workdir / REFERENCE_REPORT_FILENAME
 
     if convert_docx_to_pdf:
         convert_docx_to_pdf_with_word(input_docx, workdir)
         pdf_workdir = workdir
         if validate_converted_pdf:
             run_pdf_references_validation_in_workdir(workdir, verbose=pdf_verbose)
+        else:
+            run_pdf_structure_extraction_in_workdir(workdir)
+    elif pdf_workdir is not None:
+        pdf_workdir = Path(pdf_workdir)
+        if not (pdf_workdir / paths.FILE_STRUCTURE).exists() and (pdf_workdir / paths.FILE_PDF_FILE_NAME).exists():
+            run_pdf_structure_extraction_in_workdir(pdf_workdir)
 
     rules = load_replacement_rules(path_rules) if path_rules is not None else []
     context = build_docx_context(input_docx)
@@ -107,25 +111,35 @@ def run_docx_editing(
     save_edit_proposals(path_proposals, proposals)
     number_fix_rules = build_number_fix_rules(reference_index)
     save_replacement_rules(path_number_fix_rules, number_fix_rules)
-    generated_rules = []
-    if pdf_workdir is not None:
-        if not (Path(pdf_workdir) / paths.FILE_STRUCTURE).exists():
-            raise FileNotFoundError(
-                f'Для связки PDF-замечаний нужен {paths.FILE_STRUCTURE} в pdf_workdir. '
-                'Сначала запустите PDF parsing/detection/validation pipeline.'
-            )
-        pdf_mapping = build_pdf_docx_reference_mapping(Paths.create(Path(pdf_workdir)), reference_index)
-        save_pdf_docx_reference_mapping(path_pdf_mapping, pdf_mapping)
-        if use_gigachat:
-            load_env_file(env_file or Path(__file__).with_name('.env'))
-            editor = GigaChatReferenceTextEditor()
-            generated_fixes = generate_reference_fixes(pdf_mapping.links, editor)
-            save_generated_reference_fixes(path_gigachat_fixes, generated_fixes)
-            generated_rules = generated_fixes_to_replacement_rules(
-                generated_fixes,
-                min_confidence=gigachat_min_confidence,
-            )
-            save_replacement_rules(path_gigachat_rules, generated_rules)
+    if llm_baseline:
+        examples, resolved_examples_path, report_warnings = [], None, []
+    else:
+        examples, resolved_examples_path, report_warnings = load_examples_or_warn(reference_examples_path)
+    validator = None
+    if llm_baseline:
+        load_env_file(env_file or Path(__file__).with_name('.env'))
+        validator = GigaChatGost2017BaselineValidator()
+    elif use_gigachat:
+        load_env_file(env_file or Path(__file__).with_name('.env'))
+        validator = GigaChatReferenceAgentValidator()
+    reference_report = build_reference_report(
+        reference_index,
+        examples,
+        examples_source=resolved_examples_path,
+        validator=validator,
+    )
+    if report_warnings:
+        reference_report = replace(reference_report, warnings=[*reference_report.warnings, *report_warnings])
+    save_reference_report(path_reference_report, reference_report)
+    reference_agent_rules = reference_report_to_replacement_rules(
+        reference_report,
+        reference_index,
+        min_confidence=gigachat_min_confidence,
+    )
+    save_replacement_rules(path_reference_agent_rules, reference_agent_rules)
+    path_reference_output_pdf = workdir / paths.FILE_PDF_FILE_OUTPUT
+    if pdf_workdir is not None and (Path(pdf_workdir) / paths.FILE_STRUCTURE).exists():
+        visualize_reference_report_on_pdf(Path(pdf_workdir), reference_report, output_pdf=path_reference_output_pdf)
     logger.info(
         'DOCX проиндексирован: абзацев=%d, таблиц=%d, абзацев в списке литературы=%d, источников=%d',
         context.paragraph_count,
@@ -137,7 +151,7 @@ def run_docx_editing(
     results = apply_tracked_replacements(
         input_docx,
         output_docx,
-        [*rules, *generated_rules],
+        [*rules, *reference_agent_rules],
         references_only=references_only,
         author=author,
     )
@@ -150,11 +164,14 @@ def run_docx_editing(
     logger.info('Индекс источников сохранен: %s', path_references)
     logger.info('Предложения правок сохранены: %s', path_proposals)
     logger.info('Правила исправления номеров сохранены: %s', path_number_fix_rules)
+    logger.info('Агентный отчет по источникам сохранен: %s', path_reference_report)
+    logger.info('Правила Track Changes из агентного отчета сохранены: %s', path_reference_agent_rules)
     if pdf_workdir is not None:
-        logger.info('Связка PDF-замечаний с DOCX сохранена: %s', path_pdf_mapping)
+        logger.info('PDF-визуализация агентных замечаний сохранена: %s', path_reference_output_pdf)
     if use_gigachat:
-        logger.info('GigaChat-исправления сохранены: %s', path_gigachat_fixes)
-        logger.info('GigaChat-правила Track Changes сохранены: %s', path_gigachat_rules)
+        logger.info('GigaChat использован как основной агент проверки источников')
+    if llm_baseline:
+        logger.info('GigaChat использован в baseline-режиме переписывания по ГОСТ 7.32-2017')
     return workdir
 
 
@@ -188,7 +205,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--validate-converted-pdf',
         action='store_true',
-        help='После --convert-docx-to-pdf сразу запустить PDF parsing/detection/validation pipeline.',
+        help='Legacy-режим: после --convert-docx-to-pdf запустить старый rule-based PDF validator.',
     )
     parser.add_argument(
         '--pdf-verbose',
@@ -200,7 +217,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--use-gigachat',
         action='store_true',
-        help='Сгенерировать исправления библиографических записей через GigaChat по PDF-замечаниям.',
+        help='Использовать GigaChat как основной LLM-агент проверки источников.',
+    )
+    parser.add_argument(
+        '--llm-baseline',
+        action='store_true',
+        help='Baseline: попросить GigaChat переписать каждый источник по ГОСТ 7.32-2017 без базы примеров.',
     )
     parser.add_argument(
         '--gigachat-min-confidence',
@@ -212,7 +234,13 @@ def parse_args() -> argparse.Namespace:
         '--env-file',
         type=Path,
         default=Path(__file__).with_name('.env'),
-        help='Файл с переменными окружения GigaChat. По умолчанию: research/pimenov/.env',
+        help='Файл с переменными окружения GigaChat.',
+    )
+    parser.add_argument(
+        '--reference-examples',
+        type=Path,
+        default=None,
+        help='XLSX/CSV/JSON-база эталонных примеров оформления источников. По умолчанию ищется reference_examples.json, затем XLSX на Desktop.',
     )
     return parser.parse_args()
 
@@ -233,6 +261,8 @@ def main() -> None:
         validate_converted_pdf=args.validate_converted_pdf,
         pdf_verbose=args.pdf_verbose,
         env_file=args.env_file,
+        reference_examples_path=args.reference_examples,
+        llm_baseline=args.llm_baseline,
     )
 
 
